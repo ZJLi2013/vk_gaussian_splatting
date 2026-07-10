@@ -50,6 +50,15 @@ public:
     }
   }
 
+  uint32_t splatCount() { return m_assets.splatSets.getTotalGlobalSplatCount(); }
+
+  // Scene is renderable once the async ply loader is done and splats exist.
+  bool sceneReady()
+  {
+    return m_plyLoader.getStatus() != PlyLoaderAsync::State::E_LOADING
+           && m_assets.splatSets.getTotalGlobalSplatCount() > 0;
+  }
+
   void setCameraLookAt(const glm::vec3& eye, const glm::vec3& center, const glm::vec3& up, float fovyDeg)
   {
     cameraManip->setLookat(eye, center, up);
@@ -139,10 +148,17 @@ public:
     m_application.addElement(m_gs);       // engine
     m_application.addElement(elemCamera);  // camera (after engine? see main.cpp order)
 
-    // Load the splat scene (benchmark mode -> synchronous load). May need a few
-    // frames to complete; render a warmup frame after requesting load.
+    // Request the splat scene load. The ply loader runs on a background thread and
+    // its results are consumed per-frame in onRender, so pump frames until the
+    // scene is ready (splats uploaded) before returning control to Python.
     m_gs->onFileDrop(std::filesystem::path(ply));
-    m_application.run();  // process load + first frame
+    const int kMaxLoadFrames = 2000;
+    int       frames         = 0;
+    for(; frames < kMaxLoadFrames && !m_gs->sceneReady(); ++frames)
+      m_application.run();
+    if(!m_gs->sceneReady())
+      throw std::runtime_error("vkgs.Renderer: scene did not finish loading (splatCount=0 after "
+                               + std::to_string(frames) + " frames): " + ply);
   }
 
   ~Renderer()
@@ -161,6 +177,8 @@ public:
 
   // render one frame
   void step() { m_application.run(); }
+
+  uint32_t splatCount() { return m_gs->splatCount(); }
 
   // M1.0a: save last rendered frame to PNG
   void savePng(const std::string& path) { m_gs->saveMainImage(&m_application, path); }
@@ -183,5 +201,6 @@ PYBIND11_MODULE(vkgs, m)
            py::arg("height") = 720, py::arg("gpu") = 0, py::arg("shader_root") = "/work/vk_gaussian_splatting")
       .def("set_camera", &Renderer::setCamera, py::arg("eye"), py::arg("center"), py::arg("up"), py::arg("fovy") = 60.0f)
       .def("step", &Renderer::step, py::call_guard<py::gil_scoped_release>())
+      .def("splat_count", &Renderer::splatCount)
       .def("save_png", &Renderer::savePng, py::arg("path"));
 }
