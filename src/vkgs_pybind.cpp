@@ -18,6 +18,9 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 
+#include <array>
+#include <glm/gtc/type_ptr.hpp>
+
 #include <gaussian_splatting_ui.h>
 #include "elem_camera_custom.hpp"
 #include "hardware_support.h"
@@ -73,6 +76,38 @@ public:
   // linear image + saveImageToFile. Grabbing COLOR_LDR directly gave a blank frame
   // because the tonemap pass only writes COLOR_LDR when the tonemapper is active.
   void saveMainImage(const std::string& path) { saveVisualizationImageToFile(std::filesystem::path(path)); }
+
+  // ---- M1.1: dynamic triangle-mesh instances composited with the splats ----
+  // loadModel() loads geometry (.obj/.gltf/.glb), uploads it, and creates a
+  // default instance at the origin (m_lastCreatedInstance). It also sets the
+  // manager's pending requests (eUpdateDescriptors | eRebuildTLAS), consumed in
+  // the next onRender via processVramUpdates(). We deliberately bypass the GUI
+  // import path (guiImportMeshIfNeeded) because it opens an "Import mesh file?"
+  // confirmation modal that never resolves in headless mode.
+  int addMesh(const std::string& path)
+  {
+    auto mesh = m_assets.meshes.loadModel(std::filesystem::path(path));
+    if(!mesh)
+      return -1;
+    return int(m_assets.meshes.instances.size()) - 1;  // index of the default instance loadModel created
+  }
+
+  size_t meshInstanceCount() { return m_assets.meshes.instances.size(); }
+
+  // Set the world transform of a mesh instance (column-major, glm/OpenGL order).
+  // Mirrors createInstance(): keep transform + its two cached inverses in sync,
+  // then flag the instance so processVramUpdates uploads it and updates the TLAS.
+  void setMeshTransform(int idx, const std::array<float, 16>& m)
+  {
+    auto& insts = m_assets.meshes.instances;
+    if(idx < 0 || size_t(idx) >= insts.size())
+      throw std::runtime_error("vkgs: mesh instance index out of range");
+    glm::mat4 T                             = glm::make_mat4(m.data());
+    insts[idx]->transform                   = T;
+    insts[idx]->transformInverse            = glm::inverse(T);
+    insts[idx]->transformRotScaleInverse    = glm::inverse(glm::mat3(T));
+    m_assets.meshes.updateInstanceTransform(insts[idx]);
+  }
 };
 
 // Build a Vulkan context configured like main.cpp (RT extensions optional, forcegpu).
@@ -191,6 +226,14 @@ public:
   // M1.0a: save last rendered frame to PNG
   void savePng(const std::string& path) { m_gs->saveMainImage(path); }
 
+  // M1.1: load a triangle mesh into the scene; returns its instance index (-1 on failure).
+  int addMesh(const std::string& path) { return m_gs->addMesh(path); }
+
+  // M1.1: update a mesh instance transform (16 floats, column-major).
+  void setMeshTransform(int idx, const std::array<float, 16>& m) { m_gs->setMeshTransform(idx, m); }
+
+  size_t meshCount() { return m_gs->meshInstanceCount(); }
+
   // M1.0b: return last rendered frame as an in-memory RGBA8 numpy array [H, W, 4].
   py::array_t<uint8_t> readback()
   {
@@ -223,5 +266,8 @@ PYBIND11_MODULE(vkgs, m)
       .def("step", &Renderer::step, py::call_guard<py::gil_scoped_release>())
       .def("splat_count", &Renderer::splatCount)
       .def("save_png", &Renderer::savePng, py::arg("path"))
-      .def("readback", &Renderer::readback);
+      .def("readback", &Renderer::readback)
+      .def("add_mesh", &Renderer::addMesh, py::arg("path"))
+      .def("set_mesh_transform", &Renderer::setMeshTransform, py::arg("idx"), py::arg("transform"))
+      .def("mesh_count", &Renderer::meshCount);
 }
