@@ -224,12 +224,18 @@ private:
   // Summary info overlay (GPU name, FPS, VRAM)
   void guiDrawSummaryOverlay(ImVec2 imagePos, ImVec2 imageSize);
 
-  // Helper method to save current visualization to image file
+public:
+  // Helper method to save current visualization to image file.
+  // feature4: made public so the pybind headless renderer can reuse the exact
+  // CLI-proven readback path (getCurrentVisualizationImageInfo handles tonemap/
+  // DLSS/viz-mode selection), instead of grabbing a raw GBuffer that may be blank.
   void saveVisualizationImageToFile(const std::filesystem::path& filename);
 
   // Save a specific buffer by index to file, or all buffers if bufferIndex == -1.
   // The filename provides the base path and extension (.png/.jpg/.hdr).
   void saveBufferToFile(const std::filesystem::path& filename, int32_t bufferIndex);
+
+private:
 
   // Helper method to get settings string for comparison display
   std::string getSettingsString(int pipeline, int visualize);

@@ -68,12 +68,11 @@ public:
     cameraManip->setFov(fovyDeg);
   }
 
-  // M1.0a: save the tone-mapped LDR output to a PNG via the app helper.
-  // Called after a frame has been rendered (GPU idle is ensured inside saveImageToFile).
-  void saveMainImage(nvapp::Application* app, const std::string& path)
-  {
-    app->saveImageToFile(m_gBuffers.getColorImage(COLOR_LDR), m_gBuffers.getSize(), path, 100);
-  }
+  // M1.0a: save the current visualization (the actual displayed frame) to a PNG.
+  // Reuses the CLI-proven path: getCurrentVisualizationImageInfo() + GPU blit to a
+  // linear image + saveImageToFile. Grabbing COLOR_LDR directly gave a blank frame
+  // because the tonemap pass only writes COLOR_LDR when the tonemapper is active.
+  void saveMainImage(const std::string& path) { saveVisualizationImageToFile(std::filesystem::path(path)); }
 };
 
 // Build a Vulkan context configured like main.cpp (RT extensions optional, forcegpu).
@@ -190,7 +189,7 @@ public:
   uint32_t splatCount() { return m_gs->splatCount(); }
 
   // M1.0a: save last rendered frame to PNG
-  void savePng(const std::string& path) { m_gs->saveMainImage(&m_application, path); }
+  void savePng(const std::string& path) { m_gs->saveMainImage(path); }
 
 private:
   nvutils::ProfilerManager                   m_profilerManager;
