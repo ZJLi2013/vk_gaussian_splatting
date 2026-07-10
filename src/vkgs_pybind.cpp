@@ -52,6 +52,8 @@ public:
 
   uint32_t splatCount() { return m_assets.splatSets.getTotalGlobalSplatCount(); }
 
+  bool isLoading() { return m_plyLoader.getStatus() == PlyLoaderAsync::State::E_LOADING; }
+
   // Scene is renderable once the async ply loader is done and splats exist.
   bool sceneReady()
   {
@@ -151,11 +153,20 @@ public:
     // Request the splat scene load. The ply loader runs on a background thread and
     // its results are consumed per-frame in onRender, so pump frames until the
     // scene is ready (splats uploaded) before returning control to Python.
+    fprintf(stderr, "[vkgs] onFileDrop(%s)\n", ply.c_str());
+    fflush(stderr);
     m_gs->onFileDrop(std::filesystem::path(ply));
-    const int kMaxLoadFrames = 2000;
+    const int kMaxLoadFrames = 300;
     int       frames         = 0;
     for(; frames < kMaxLoadFrames && !m_gs->sceneReady(); ++frames)
+    {
+      fprintf(stderr, "[vkgs] load frame %d: splatCount=%u loading=%d\n", frames, m_gs->splatCount(),
+              int(m_gs->isLoading()));
+      fflush(stderr);
       m_application.run();
+    }
+    fprintf(stderr, "[vkgs] load loop done after %d frames, splatCount=%u\n", frames, m_gs->splatCount());
+    fflush(stderr);
     if(!m_gs->sceneReady())
       throw std::runtime_error("vkgs.Renderer: scene did not finish loading (splatCount=0 after "
                                + std::to_string(frames) + " frames): " + ply);
