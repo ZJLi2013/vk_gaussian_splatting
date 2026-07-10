@@ -191,6 +191,18 @@ public:
   // M1.0a: save last rendered frame to PNG
   void savePng(const std::string& path) { m_gs->saveMainImage(path); }
 
+  // M1.0b: return last rendered frame as an in-memory RGBA8 numpy array [H, W, 4].
+  py::array_t<uint8_t> readback()
+  {
+    std::vector<uint8_t> buf;
+    uint32_t             w = 0, h = 0;
+    if(!m_gs->readVisualizationImageRGBA8(buf, w, h))
+      throw std::runtime_error("vkgs.Renderer.readback: no visualization image available");
+    py::array_t<uint8_t> arr({py::ssize_t(h), py::ssize_t(w), py::ssize_t(4)});
+    std::memcpy(arr.mutable_data(), buf.data(), buf.size());
+    return arr;
+  }
+
 private:
   nvutils::ProfilerManager                   m_profilerManager;
   nvutils::ParameterRegistry                 m_parameterRegistry;
@@ -210,5 +222,6 @@ PYBIND11_MODULE(vkgs, m)
       .def("set_camera", &Renderer::setCamera, py::arg("eye"), py::arg("center"), py::arg("up"), py::arg("fovy") = 60.0f)
       .def("step", &Renderer::step, py::call_guard<py::gil_scoped_release>())
       .def("splat_count", &Renderer::splatCount)
-      .def("save_png", &Renderer::savePng, py::arg("path"));
+      .def("save_png", &Renderer::savePng, py::arg("path"))
+      .def("readback", &Renderer::readback);
 }

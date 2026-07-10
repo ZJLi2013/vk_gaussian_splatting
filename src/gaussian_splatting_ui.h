@@ -231,6 +231,10 @@ public:
   // DLSS/viz-mode selection), instead of grabbing a raw GBuffer that may be blank.
   void saveVisualizationImageToFile(const std::filesystem::path& filename);
 
+  // feature4: read current visualization frame into a packed RGBA8 host buffer
+  // (row-major, no padding). Returns false if no image is available.
+  bool readVisualizationImageRGBA8(std::vector<uint8_t>& out, uint32_t& width, uint32_t& height);
+
   // Save a specific buffer by index to file, or all buffers if bufferIndex == -1.
   // The filename provides the base path and extension (.png/.jpg/.hdr).
   void saveBufferToFile(const std::filesystem::path& filename, int32_t bufferIndex);

@@ -737,6 +737,55 @@ void GaussianSplattingUI::saveVisualizationImageToFile(const std::filesystem::pa
 }
 
 //--------------------------------------------------------------------------------------------------
+// feature4 (genesis-world-poc): read the current visualization frame into a tightly
+// packed RGBA8 host buffer (row-major, 4 bytes/pixel, no padding). Mirrors the readback
+// half of saveVisualizationImageToFile() but memcpy's into `out` instead of writing a file,
+// so the pybind headless renderer can return an in-memory numpy array (M1.0b).
+//
+bool GaussianSplattingUI::readVisualizationImageRGBA8(std::vector<uint8_t>& out, uint32_t& width, uint32_t& height)
+{
+  ImageCompare::ImageInfo srcImageInfo = getCurrentVisualizationImageInfo();
+  if(srcImageInfo.image == VK_NULL_HANDLE)
+    return false;
+
+  width  = srcImageInfo.size.width;
+  height = srcImageInfo.size.height;
+
+  // Blit the (possibly HDR / optimally-tiled) source into a host-visible, linear
+  // R8G8B8A8_UNORM image (imageToLinear allocates host-visible memory for CPU readback).
+  VkCommandBuffer cmd            = m_app->createTempCmdBuffer();
+  VkImage         dstImage       = {};
+  VkDeviceMemory  dstImageMemory = {};
+  nvvk::imageToLinear(cmd, m_device, m_app->getPhysicalDevice(), srcImageInfo.image, srcImageInfo.size, dstImage,
+                      dstImageMemory, VK_FORMAT_R8G8B8A8_UNORM);
+  m_app->submitAndWaitTempCmdBuffer(cmd);
+
+  // Query the row pitch of the linear image and copy row-by-row into a packed buffer.
+  VkImageSubresource  subResource{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0};
+  VkSubresourceLayout layout{};
+  vkGetImageSubresourceLayout(m_device, dstImage, &subResource, &layout);
+
+  void* mapped = nullptr;
+  vkMapMemory(m_device, dstImageMemory, 0, VK_WHOLE_SIZE, 0, &mapped);
+  VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+  range.memory = dstImageMemory;
+  range.offset = 0;
+  range.size   = VK_WHOLE_SIZE;
+  vkInvalidateMappedMemoryRanges(m_device, 1, &range);  // safe if memory is non-coherent
+
+  const size_t rowBytes = size_t(width) * 4;
+  out.resize(rowBytes * height);
+  const uint8_t* src = static_cast<const uint8_t*>(mapped) + layout.offset;
+  for(uint32_t y = 0; y < height; ++y)
+    memcpy(out.data() + y * rowBytes, src + size_t(y) * layout.rowPitch, rowBytes);
+
+  vkUnmapMemory(m_device, dstImageMemory);
+  vkFreeMemory(m_device, dstImageMemory, nullptr);
+  vkDestroyImage(m_device, dstImage, nullptr);
+  return true;
+}
+
+//--------------------------------------------------------------------------------------------------
 // Save a specific buffer by index, or all buffers if bufferIndex == -1.
 //
 void GaussianSplattingUI::saveBufferToFile(const std::filesystem::path& filename, int32_t bufferIndex)
