@@ -53,6 +53,11 @@ file(GLOB SOURCE_FILES src/*.*)
 # explicitly in the USE_DLSS block below. Exclude them from the glob so the
 # project builds with -DUSE_DLSS=OFF on platforms without NGX (e.g. AMD/RADV).
 list(FILTER SOURCE_FILES EXCLUDE REGEX "/dlss_")
+# feature4 (genesis-world-poc): vkgs_pybind.cpp is compiled ONLY into the python
+# module target (below), never into the executable (which owns main.cpp).
+option(BUILD_PYBIND "Build the vkgs python module (pybind11)" ON)
+set(PYBIND_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/vkgs_pybind.cpp)
+list(REMOVE_ITEM SOURCE_FILES ${PYBIND_SRC})
 file(GLOB SHADER_FILES shaders/*.slang shaders/*.h)
 file(GLOB EXTERN_FILES 3rdparty/miniply/*.*)
 
@@ -132,3 +137,47 @@ copy_to_runtime_and_install(${PROJECT_NAME}
   LOCAL_DIRS "${CMAKE_CURRENT_LIST_DIR}/shaders"
   AUTO
 )
+
+#####################################################################################
+# feature4 (genesis-world-poc): python module (pybind11) sharing the engine sources
+# (minus main.cpp). Built with -DUSE_DLSS=OFF on AMD; dlss sources already filtered.
+#
+if(BUILD_PYBIND)
+  find_package(pybind11 CONFIG REQUIRED)
+
+  set(ENGINE_SOURCES ${SOURCE_FILES})
+  list(REMOVE_ITEM ENGINE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
+
+  pybind11_add_module(vkgs ${ENGINE_SOURCES} ${PYBIND_SRC} ${EXTERN_FILES})
+
+  target_include_directories(vkgs PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/shaders
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/miniply
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/vrdx
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/spz/src/cc)
+
+  target_compile_definitions(vkgs PRIVATE IMGUI_DEFINE_MATH_OPERATORS VKGS_VERSION="${VKGS_VERSION}")
+
+  target_link_libraries(vkgs PRIVATE
+    nvpro2::nvapp
+    nvpro2::nvgui
+    nvpro2::nvvkglsl
+    nvpro2::nvslang
+    nvpro2::nvshaders_host
+    nvpro2::nvutils
+    nvpro2::nvvk
+    nvpro2::nvgpu_monitor
+    vk_radix_sort
+    spz::spz
+    tinygltf)
+
+  add_project_definitions(vkgs)
+
+  copy_to_runtime_and_install(vkgs
+    DIRECTORIES "${NVSHADERS_DIR}/nvshaders"
+    FILES ${Slang_GLSLANG}
+    LOCAL_DIRS "${CMAKE_CURRENT_LIST_DIR}/shaders"
+    AUTO
+  )
+endif()
