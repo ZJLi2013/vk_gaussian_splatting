@@ -108,6 +108,23 @@ public:
     insts[idx]->transformRotScaleInverse    = glm::inverse(glm::mat3(T));
     m_assets.meshes.updateInstanceTransform(insts[idx]);
   }
+
+  // Set the base color of all materials of the mesh backing instance `idx`.
+  // The engine shades with linear baseColor (loadModel converts OBJ sRGB->linear);
+  // pass linear rgb here. Each add_mesh() creates a distinct MeshVk, so this is
+  // per-instance. Mirrors light_manager_vk.cpp setting materials[*].baseColor.
+  void setMeshColor(int idx, const std::array<float, 3>& rgb)
+  {
+    auto& insts = m_assets.meshes.instances;
+    if(idx < 0 || size_t(idx) >= insts.size())
+      throw std::runtime_error("vkgs: mesh instance index out of range");
+    auto mesh = insts[idx]->mesh;
+    if(!mesh)
+      return;
+    for(auto& mat : mesh->materials)
+      mat.baseColor = glm::vec3(rgb[0], rgb[1], rgb[2]);
+    m_assets.meshes.updateMeshMaterials(mesh);
+  }
 };
 
 // Build a Vulkan context configured like main.cpp (RT extensions optional, forcegpu).
@@ -232,6 +249,9 @@ public:
   // M1.1: update a mesh instance transform (16 floats, column-major).
   void setMeshTransform(int idx, const std::array<float, 16>& m) { m_gs->setMeshTransform(idx, m); }
 
+  // F1.1: set mesh instance base color (linear rgb).
+  void setMeshColor(int idx, const std::array<float, 3>& rgb) { m_gs->setMeshColor(idx, rgb); }
+
   size_t meshCount() { return m_gs->meshInstanceCount(); }
 
   // M1.0b: return last rendered frame as an in-memory RGBA8 numpy array [H, W, 4].
@@ -269,5 +289,6 @@ PYBIND11_MODULE(vkgs, m)
       .def("readback", &Renderer::readback)
       .def("add_mesh", &Renderer::addMesh, py::arg("path"))
       .def("set_mesh_transform", &Renderer::setMeshTransform, py::arg("idx"), py::arg("transform"))
+      .def("set_mesh_color", &Renderer::setMeshColor, py::arg("idx"), py::arg("rgb"))
       .def("mesh_count", &Renderer::meshCount);
 }
