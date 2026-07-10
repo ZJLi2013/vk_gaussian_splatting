@@ -21,6 +21,7 @@
 #include <gaussian_splatting_ui.h>
 #include "elem_camera_custom.hpp"
 #include "hardware_support.h"
+#include "parameters.h"
 
 namespace py = pybind11;
 using namespace vk_gaussian_splatting;
@@ -153,18 +154,15 @@ public:
     // Request the splat scene load. The ply loader runs on a background thread and
     // its results are consumed per-frame in onRender, so pump frames until the
     // scene is ready (splats uploaded) before returning control to Python.
-    fprintf(stderr, "[vkgs] onFileDrop(%s)\n", ply.c_str());
-    fflush(stderr);
-    m_gs->onFileDrop(std::filesystem::path(ply));
-    const int kMaxLoadFrames = 300;
+    // IMPORTANT: enqueue with porcelain=true so the UI's load path skips the
+    // interactive "Load .ply file ?" confirmation modal (which never resolves in
+    // headless mode). This mirrors how the CLI loads scenes silently. onFileDrop()
+    // would push a non-porcelain request and hang forever waiting for a click.
+    prmScene.pushLoadRequest(std::filesystem::path(ply), /*porcelain=*/true);
+    const int kMaxLoadFrames = 600;
     int       frames         = 0;
     for(; frames < kMaxLoadFrames && !m_gs->sceneReady(); ++frames)
-    {
-      fprintf(stderr, "[vkgs] load frame %d: splatCount=%u loading=%d\n", frames, m_gs->splatCount(),
-              int(m_gs->isLoading()));
-      fflush(stderr);
       m_application.run();
-    }
     fprintf(stderr, "[vkgs] load loop done after %d frames, splatCount=%u\n", frames, m_gs->splatCount());
     fflush(stderr);
     if(!m_gs->sceneReady())
