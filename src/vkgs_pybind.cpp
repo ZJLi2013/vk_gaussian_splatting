@@ -32,9 +32,22 @@ namespace {
 class GaussianSplattingHeadless : public GaussianSplattingUI
 {
 public:
-  GaussianSplattingHeadless(nvutils::ProfilerManager* pm, nvutils::ParameterRegistry* pr, bool* benchmark)
+  GaussianSplattingHeadless(nvutils::ProfilerManager* pm,
+                            nvutils::ParameterRegistry* pr,
+                            bool*                       benchmark,
+                            const std::string&          shaderRoot)
       : GaussianSplattingUI(pm, pr, benchmark)
   {
+    // The engine resolves shader dirs relative to nvutils::getExecutablePath(),
+    // which for a python module points at the interpreter, not the vk_gs tree.
+    // Append the real source dirs so runtime slang compilation can find them:
+    //   <root>/shaders          -> "image_compare_composite.comp.slang", etc.
+    //   <root>/nvpro_core2      -> "nvshaders/tonemapper.slang", etc.
+    if(!shaderRoot.empty())
+    {
+      std::filesystem::path root(shaderRoot);
+      m_slangCompiler.addSearchPaths({root / "shaders", root / "nvpro_core2"});
+    }
   }
 
   void setCameraLookAt(const glm::vec3& eye, const glm::vec3& center, const glm::vec3& up, float fovyDeg)
@@ -95,7 +108,7 @@ static void configureVulkan(nvvk::ContextInitInfo& vkSetup, int forceGpu)
 class Renderer
 {
 public:
-  Renderer(const std::string& ply, int width, int height, int forceGpu)
+  Renderer(const std::string& ply, int width, int height, int forceGpu, const std::string& shaderRoot)
   {
     nvvk::ContextInitInfo vkSetup;
     configureVulkan(vkSetup, forceGpu);
@@ -105,7 +118,7 @@ public:
 
     registerCommandLineParameters(&m_parameterRegistry);
 
-    m_gs = std::make_shared<GaussianSplattingHeadless>(&m_profilerManager, &m_parameterRegistry, &m_benchmark);
+    m_gs = std::make_shared<GaussianSplattingHeadless>(&m_profilerManager, &m_parameterRegistry, &m_benchmark, shaderRoot);
 
     nvapp::ApplicationCreateInfo appInfo;
     appInfo.name               = "vkgs_pybind";
@@ -166,8 +179,8 @@ PYBIND11_MODULE(vkgs, m)
   m.doc() = "In-process headless vk_gaussian_splatting renderer (feature4 M1.0)";
 
   py::class_<Renderer>(m, "Renderer")
-      .def(py::init<const std::string&, int, int, int>(), py::arg("ply"), py::arg("width") = 1280,
-           py::arg("height") = 720, py::arg("gpu") = 0)
+      .def(py::init<const std::string&, int, int, int, const std::string&>(), py::arg("ply"), py::arg("width") = 1280,
+           py::arg("height") = 720, py::arg("gpu") = 0, py::arg("shader_root") = "/work/vk_gaussian_splatting")
       .def("set_camera", &Renderer::setCamera, py::arg("eye"), py::arg("center"), py::arg("up"), py::arg("fovy") = 60.0f)
       .def("step", &Renderer::step, py::call_guard<py::gil_scoped_release>())
       .def("save_png", &Renderer::savePng, py::arg("path"));
