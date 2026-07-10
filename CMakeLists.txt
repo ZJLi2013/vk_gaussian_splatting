@@ -174,10 +174,9 @@ if(BUILD_PYBIND)
 
   add_project_definitions(vkgs)
 
-  copy_to_runtime_and_install(vkgs
-    DIRECTORIES "${NVSHADERS_DIR}/nvshaders"
-    FILES ${Slang_GLSLANG}
-    LOCAL_DIRS "${CMAKE_CURRENT_LIST_DIR}/shaders"
-    AUTO
-  )
+  # NOTE: nvpro's copy_to_runtime_and_install() cannot install a MODULE target
+  # (no LIBRARY DESTINATION). The vkgs module reuses the shaders/nvshaders that
+  # the executable's copy step already places in the runtime dir; the Python
+  # driver is expected to run with that dir discoverable (iterate on shader path
+  # resolution in M1.0 if slang runtime compile can't find shaders).
 endif()
